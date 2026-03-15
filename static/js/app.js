@@ -1,13 +1,3 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {
-  getAuth,
-  GoogleAuthProvider,
-  onAuthStateChanged,
-  signInWithPopup,
-  signOut,
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-
-const firebaseConfig = window.TIDE_CONFIG?.firebase || {};
 const map = L.map("map", { zoomControl: false }).setView([24.9, -80.8], 9);
 L.control.zoom({ position: "bottomright" }).addTo(map);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -15,7 +5,6 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 
 const state = {
-  authEnabled: false,
   user: null,
   sites: [],
   selectedSiteId: null,
@@ -26,9 +15,6 @@ const elements = {
   siteCount: document.getElementById("siteCount"),
   regionCount: document.getElementById("regionCount"),
   contributorCount: document.getElementById("contributorCount"),
-  authStatus: document.getElementById("authStatus"),
-  signInButton: document.getElementById("signInButton"),
-  signOutButton: document.getElementById("signOutButton"),
   siteList: document.getElementById("siteList"),
   siteForm: document.getElementById("siteForm"),
   editorMode: document.getElementById("editorMode"),
@@ -48,19 +34,8 @@ function setFormStatus(message = "", kind = "") {
   elements.formStatus.className = `status ${kind}`.trim();
 }
 
-function renderAuthStatus(message, detail, signedIn = false) {
-  elements.authStatus.innerHTML = `<strong>${message}</strong><div class="helper">${detail}</div>`;
-  elements.signInButton.disabled = signedIn || !state.authEnabled;
-  elements.signOutButton.disabled = !signedIn;
-  elements.submitButton.disabled = !signedIn;
-  if (!signedIn) {
-    elements.editorMode.value = "create";
-  }
-  syncEditorTitle();
-}
-
 function contributorLabel(actor) {
-  return actor?.email || actor?.identifier || actor?.sub || "Unknown";
+  return actor?.display_name || actor?.email || actor?.identifier || actor?.sub || "Unknown";
 }
 
 function popupMarkup(site) {
@@ -184,12 +159,18 @@ async function loadSites() {
   }
 }
 
-async function getAuthHeader() {
-  if (!state.user) {
-    throw new Error("Sign in with Google to update the database.");
+async function checkAuth() {
+  const response = await fetch("/api/user");
+  const user = await response.json();
+  state.user = user;
+  
+  // Disable submit button if not logged in
+  if (!user || user.error) {
+    elements.submitButton.disabled = true;
+    state.user = null;
+  } else {
+    elements.submitButton.disabled = false;
   }
-  const token = await state.user.getIdToken();
-  return { Authorization: `Bearer ${token}` };
 }
 
 async function submitSite(event) {
@@ -208,10 +189,6 @@ async function submitSite(event) {
   };
 
   try {
-    const headers = {
-      "Content-Type": "application/json",
-      ...(await getAuthHeader()),
-    };
     const isUpdate = elements.editorMode.value === "update";
     if (isUpdate && !state.selectedSiteId) {
       throw new Error("Choose a dive site before using update mode.");
@@ -221,7 +198,7 @@ async function submitSite(event) {
     const method = isUpdate ? "PUT" : "POST";
     const response = await fetch(endpoint, {
       method,
-      headers,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     const result = await response.json();
@@ -237,56 +214,10 @@ async function submitSite(event) {
   }
 }
 
-function validateFirebaseConfig() {
-  const requiredKeys = ["apiKey", "authDomain", "projectId", "appId"];
-  return requiredKeys.every((key) => Boolean(firebaseConfig[key]));
-}
-
-function initFirebase() {
-  if (!validateFirebaseConfig()) {
-    renderAuthStatus(
-      "Firebase not configured",
-      "Create a .env from .env.example and fill in the Firebase web app config values.",
-      false,
-    );
-    elements.submitButton.disabled = true;
-    return;
-  }
-
-  const app = initializeApp(firebaseConfig);
-  const auth = getAuth(app);
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: "select_account" });
-  state.authEnabled = true;
-
-  elements.signInButton.addEventListener("click", async () => {
-    try {
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      renderAuthStatus("Sign-in failed", error.message, false);
-    }
-  });
-
-  elements.signOutButton.addEventListener("click", async () => {
-    await signOut(auth);
-  });
-
-  onAuthStateChanged(auth, (user) => {
-    state.user = user;
-    if (!user) {
-      renderAuthStatus("Signed out", "Sign in with Google to create or update dive sites.", false);
-      return;
-    }
-
-    const identifier = user.email || user.uid;
-    renderAuthStatus("Authenticated", `Writes will be attributed to ${identifier}.`, true);
-  });
-}
-
 elements.siteForm.addEventListener("submit", submitSite);
 elements.editorMode.addEventListener("change", syncEditorTitle);
 elements.resetButton.addEventListener("click", () => resetForm());
 
 syncEditorTitle();
-initFirebase();
+await checkAuth();
 await loadSites();

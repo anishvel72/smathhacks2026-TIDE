@@ -40,14 +40,22 @@
       <div class="panel-stack">
         <section class="card">
           <h2>Authentication</h2>
-          <p>Database writes require a verified Firebase ID token. The backend records the contributor by email when present, otherwise by OAuth subject.</p>
+          <p>Database writes require a verified Google account. Session cookies are used to track permissions.</p>
           <div class="auth-row">
-            <button id="signInButton" class="btn-primary" type="button">Sign in with Google</button>
-            <button id="signOutButton" class="btn-ghost" type="button" disabled>Sign out</button>
+            {% if not user %}
+              <a href="{{ url_for('login') }}" class="btn-primary" style="text-decoration: none; text-align: center;">Sign in with Google</a>
+            {% else %}
+              <a href="{{ url_for('logout') }}" class="btn-ghost" style="text-decoration: none; text-align: center;">Sign out</a>
+            {% endif %}
           </div>
           <div id="authStatus" class="auth-status">
-            <strong>Loading</strong>
-            <div class="helper">Checking Firebase configuration.</div>
+            {% if user %}
+              <strong>Authenticated</strong>
+              <div class="helper">Writes will be attributed to {{ user.display_name }}</div>
+            {% else %}
+              <strong>Signed out</strong>
+              <div class="helper">Sign in with Google to create or update dive sites.</div>
+            {% endif %}
           </div>
         </section>
 
@@ -138,9 +146,6 @@
     </section>
   </main>
 
-  <script>
-    window.TIDE_CONFIG = {{ {"firebase": firebase_config}|tojson }};
-  </script>
   <script type="module" src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
