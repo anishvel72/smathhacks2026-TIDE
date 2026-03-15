@@ -1,5 +1,5 @@
 import os
-from copy import deepcopy
+import sqlite3
 from datetime import datetime, timezone
 from flask import Flask, jsonify, render_template, request, url_for, session, redirect
 from authlib.integrations.flask_client import OAuth
@@ -10,6 +10,10 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
+app.config["DATABASE"] = os.environ.get(
+    "DATABASE_PATH",
+    os.path.join(app.root_path, "tide.db"),
+)
 
 # OAuth Configuration
 client_id = os.environ.get("GOOGLE_CLIENT_ID")
@@ -31,115 +35,269 @@ google = oauth.register(
     }
 )
 
-# --- In-Memory Store (formerly app/store.py) ---
+# --- SQLite Store ---
 
 def now_iso():
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
+SEED_USER = {
+    "email": "seed@tide.local",
+    "sub": "seed-user",
+    "display_name": "TIDE Seed Data",
+    "identifier": "seed@tide.local",
+}
+
+SEED_SITES = [
+    {
+        "name": "Molasses Reef",
+        "lat": 25.0097,
+        "lng": -80.3762,
+        "region": "Key Largo",
+        "difficulty": "Open Water",
+        "depth_ft": 35,
+        "visibility_ft": 60,
+        "notes": "Shallow coral formations with easy boat access.",
+        "added_at": "2026-03-10T14:00:00+00:00",
+        "updated_at": "2026-03-10T14:00:00+00:00",
+        "added_by": SEED_USER,
+        "updated_by": SEED_USER,
+    },
+    {
+        "name": "French Reef",
+        "lat": 25.0255,
+        "lng": -80.3529,
+        "region": "Key Largo",
+        "difficulty": "Open Water",
+        "depth_ft": 28,
+        "visibility_ft": 55,
+        "notes": "Popular reef line for survey and beginner drift dives.",
+        "added_at": "2026-03-11T14:00:00+00:00",
+        "updated_at": "2026-03-11T14:00:00+00:00",
+        "added_by": SEED_USER,
+        "updated_by": SEED_USER,
+    },
+    {
+        "name": "Sombrero Reef",
+        "lat": 24.6266,
+        "lng": -81.1102,
+        "region": "Marathon",
+        "difficulty": "Advanced",
+        "depth_ft": 42,
+        "visibility_ft": 70,
+        "notes": "Strong current windows; best with experienced buddies.",
+        "added_at": "2026-03-12T14:00:00+00:00",
+        "updated_at": "2026-03-12T14:00:00+00:00",
+        "added_by": SEED_USER,
+        "updated_by": SEED_USER,
+    },
+    {
+        "name": "Looe Key",
+        "lat": 24.5481,
+        "lng": -81.4068,
+        "region": "Lower Keys",
+        "difficulty": "Open Water",
+        "depth_ft": 30,
+        "visibility_ft": 65,
+        "notes": "High biodiversity and wide reef structure for photography.",
+        "added_at": "2026-03-13T14:00:00+00:00",
+        "updated_at": "2026-03-13T14:00:00+00:00",
+        "added_by": SEED_USER,
+        "updated_by": SEED_USER,
+    },
+]
+
+
+def get_db_connection():
+    connection = sqlite3.connect(app.config["DATABASE"])
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
 class DiveSiteStore:
-    def __init__(self):
-        seed_user = {
-            "email": "seed@tide.local",
-            "sub": "seed-user",
-            "display_name": "TIDE Seed Data",
-            "identifier": "seed@tide.local",
+    def __init__(self, db_path):
+        self.db_path = db_path
+        self.initialize()
+
+    def initialize(self):
+        with get_db_connection() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS dive_sites (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    lat REAL NOT NULL,
+                    lng REAL NOT NULL,
+                    region TEXT NOT NULL,
+                    difficulty TEXT NOT NULL,
+                    depth_ft INTEGER NOT NULL,
+                    visibility_ft INTEGER NOT NULL,
+                    notes TEXT NOT NULL,
+                    added_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    added_by_email TEXT,
+                    added_by_sub TEXT,
+                    added_by_display_name TEXT,
+                    added_by_identifier TEXT,
+                    updated_by_email TEXT,
+                    updated_by_sub TEXT,
+                    updated_by_display_name TEXT,
+                    updated_by_identifier TEXT
+                )
+                """
+            )
+
+            existing_rows = connection.execute(
+                "SELECT COUNT(*) AS count FROM dive_sites"
+            ).fetchone()["count"]
+            if existing_rows == 0:
+                for site in SEED_SITES:
+                    connection.execute(
+                        """
+                        INSERT INTO dive_sites (
+                            name, lat, lng, region, difficulty, depth_ft, visibility_ft, notes,
+                            added_at, updated_at,
+                            added_by_email, added_by_sub, added_by_display_name, added_by_identifier,
+                            updated_by_email, updated_by_sub, updated_by_display_name, updated_by_identifier
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        self._site_values(site),
+                    )
+            connection.commit()
+
+    def _actor_from_row(self, prefix, row):
+        return {
+            "email": row[f"{prefix}_email"],
+            "sub": row[f"{prefix}_sub"],
+            "display_name": row[f"{prefix}_display_name"],
+            "identifier": row[f"{prefix}_identifier"],
         }
-        self._sites = [
-            {
-                "id": 1,
-                "name": "Molasses Reef",
-                "lat": 25.0097,
-                "lng": -80.3762,
-                "region": "Key Largo",
-                "difficulty": "Open Water",
-                "depth_ft": 35,
-                "visibility_ft": 60,
-                "notes": "Shallow coral formations with easy boat access.",
-                "added_at": "2026-03-10T14:00:00+00:00",
-                "updated_at": "2026-03-10T14:00:00+00:00",
-                "added_by": seed_user,
-                "updated_by": seed_user,
-            },
-            {
-                "id": 2,
-                "name": "French Reef",
-                "lat": 25.0255,
-                "lng": -80.3529,
-                "region": "Key Largo",
-                "difficulty": "Open Water",
-                "depth_ft": 28,
-                "visibility_ft": 55,
-                "notes": "Popular reef line for survey and beginner drift dives.",
-                "added_at": "2026-03-11T14:00:00+00:00",
-                "updated_at": "2026-03-11T14:00:00+00:00",
-                "added_by": seed_user,
-                "updated_by": seed_user,
-            },
-            {
-                "id": 3,
-                "name": "Sombrero Reef",
-                "lat": 24.6266,
-                "lng": -81.1102,
-                "region": "Marathon",
-                "difficulty": "Advanced",
-                "depth_ft": 42,
-                "visibility_ft": 70,
-                "notes": "Strong current windows; best with experienced buddies.",
-                "added_at": "2026-03-12T14:00:00+00:00",
-                "updated_at": "2026-03-12T14:00:00+00:00",
-                "added_by": seed_user,
-                "updated_by": seed_user,
-            },
-            {
-                "id": 4,
-                "name": "Looe Key",
-                "lat": 24.5481,
-                "lng": -81.4068,
-                "region": "Lower Keys",
-                "difficulty": "Open Water",
-                "depth_ft": 30,
-                "visibility_ft": 65,
-                "notes": "High biodiversity and wide reef structure for photography.",
-                "added_at": "2026-03-13T14:00:00+00:00",
-                "updated_at": "2026-03-13T14:00:00+00:00",
-                "added_by": seed_user,
-                "updated_by": seed_user,
-            },
-        ]
-        self._next_id = len(self._sites) + 1
+
+    def _row_to_site(self, row):
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "lat": row["lat"],
+            "lng": row["lng"],
+            "region": row["region"],
+            "difficulty": row["difficulty"],
+            "depth_ft": row["depth_ft"],
+            "visibility_ft": row["visibility_ft"],
+            "notes": row["notes"],
+            "added_at": row["added_at"],
+            "updated_at": row["updated_at"],
+            "added_by": self._actor_from_row("added_by", row),
+            "updated_by": self._actor_from_row("updated_by", row),
+        }
+
+    def _site_values(self, site):
+        added_by = site["added_by"]
+        updated_by = site["updated_by"]
+        return (
+            site["name"],
+            site["lat"],
+            site["lng"],
+            site["region"],
+            site["difficulty"],
+            site["depth_ft"],
+            site["visibility_ft"],
+            site["notes"],
+            site["added_at"],
+            site["updated_at"],
+            added_by.get("email"),
+            added_by.get("sub"),
+            added_by.get("display_name"),
+            added_by.get("identifier"),
+            updated_by.get("email"),
+            updated_by.get("sub"),
+            updated_by.get("display_name"),
+            updated_by.get("identifier"),
+        )
 
     def list_sites(self):
-        return deepcopy(self._sites)
+        with get_db_connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM dive_sites ORDER BY id"
+            ).fetchall()
+        return [self._row_to_site(row) for row in rows]
 
     def get_site(self, site_id):
-        site = next((site for site in self._sites if site["id"] == site_id), None)
-        return deepcopy(site) if site else None
+        with get_db_connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM dive_sites WHERE id = ?",
+                (site_id,),
+            ).fetchone()
+        return self._row_to_site(row) if row else None
 
     def create_site(self, payload, actor):
         timestamp = now_iso()
-        site = {
-            "id": self._next_id,
-            **payload,
-            "added_at": timestamp,
-            "updated_at": timestamp,
-            "added_by": actor,
-            "updated_by": actor,
-        }
-        self._sites.append(site)
-        self._next_id += 1
-        return deepcopy(site)
+        with get_db_connection() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO dive_sites (
+                    name, lat, lng, region, difficulty, depth_ft, visibility_ft, notes,
+                    added_at, updated_at,
+                    added_by_email, added_by_sub, added_by_display_name, added_by_identifier,
+                    updated_by_email, updated_by_sub, updated_by_display_name, updated_by_identifier
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload["name"],
+                    payload["lat"],
+                    payload["lng"],
+                    payload["region"],
+                    payload["difficulty"],
+                    payload["depth_ft"],
+                    payload["visibility_ft"],
+                    payload["notes"],
+                    timestamp,
+                    timestamp,
+                    actor.get("email"),
+                    actor.get("sub"),
+                    actor.get("display_name"),
+                    actor.get("identifier"),
+                    actor.get("email"),
+                    actor.get("sub"),
+                    actor.get("display_name"),
+                    actor.get("identifier"),
+                ),
+            )
+            connection.commit()
+            site_id = cursor.lastrowid
+        return self.get_site(site_id)
 
     def update_site(self, site_id, payload, actor):
-        site = next((site for site in self._sites if site["id"] == site_id), None)
-        if not site:
-            return None
+        with get_db_connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE dive_sites
+                SET name = ?, lat = ?, lng = ?, region = ?, difficulty = ?, depth_ft = ?,
+                    visibility_ft = ?, notes = ?, updated_at = ?, updated_by_email = ?,
+                    updated_by_sub = ?, updated_by_display_name = ?, updated_by_identifier = ?
+                WHERE id = ?
+                """,
+                (
+                    payload["name"],
+                    payload["lat"],
+                    payload["lng"],
+                    payload["region"],
+                    payload["difficulty"],
+                    payload["depth_ft"],
+                    payload["visibility_ft"],
+                    payload["notes"],
+                    now_iso(),
+                    actor.get("email"),
+                    actor.get("sub"),
+                    actor.get("display_name"),
+                    actor.get("identifier"),
+                    site_id,
+                ),
+            )
+            connection.commit()
+            if cursor.rowcount == 0:
+                return None
+        return self.get_site(site_id)
 
-        site.update(payload)
-        site["updated_at"] = now_iso()
-        site["updated_by"] = actor
-        return deepcopy(site)
-
-store = DiveSiteStore()
+store = DiveSiteStore(app.config["DATABASE"])
 
 # --- Auth Helpers (formerly app/auth.py) ---
 

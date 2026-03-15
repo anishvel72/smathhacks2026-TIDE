@@ -14,10 +14,12 @@ Create a local `.env` from the example:
 cp .env.example .env
 ```
 
-Fill `.env` with the Firebase web app config from Firebase Console:
+Fill `.env` with the app secrets:
 
-- Project settings -> General -> Your apps -> Web app
-- Authentication -> Sign-in method -> enable `Google`
+- `FLASK_SECRET_KEY`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- Optional: `DATABASE_PATH` to override the default local SQLite file (`tide.db`)
 
 Start the server:
 
@@ -27,8 +29,8 @@ python server.py
 
 ## Notes
 
-- Google sign-in happens in the browser with Firebase Auth.
-- Database writes are emulated in memory on the Flask server.
-- `POST /api/dive-sites` and `PUT /api/dive-sites/<id>` require a Firebase ID token.
+- Google sign-in happens through the Flask OAuth flow.
+- Dive-site data persists in a local SQLite database.
+- `POST /api/dive-sites` and `PUT /api/dive-sites/<id>` require an authenticated session.
 - The backend attributes each write by `email` when available, otherwise `sub`.
-- The server auto-loads `.env` on startup for local development.
+- The server auto-loads `.env` on startup and creates the SQLite schema with seed data on first launch.
