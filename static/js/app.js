@@ -1,12 +1,15 @@
 const map = L.map("map", { 
   zoomControl: false,
-  worldCopyJump: false
+  worldCopyJump: false,
+  minZoom: 2,
+  maxBounds: [[-85, -180], [85, 180]]
 }).setView([24.9, -80.8], 9);
 
 L.control.zoom({ position: "bottomright" }).addTo(map);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: "&copy; OpenStreetMap contributors",
-  noWrap: true
+  noWrap: true,
+  bounds: [[-85, -180], [85, 180]]
 }).addTo(map);
 
 const state = {
@@ -14,6 +17,7 @@ const state = {
   sites: [],
   selectedSiteId: null,
   markers: new Map(),
+  isInitialLoad: true,
 };
 
 const elements = {
@@ -142,8 +146,9 @@ function renderMarkers() {
     bounds.push([site.lat, site.lng]);
   });
 
-  if (bounds.length) {
+  if (bounds.length && state.isInitialLoad) {
     map.fitBounds(bounds, { padding: [70, 70], maxZoom: 10 });
+    state.isInitialLoad = false;
   }
 }
 
