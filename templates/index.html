@@ -2,44 +2,145 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>TIDE</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TIDE Dive Atlas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { height: 100vh; display: flex; align-items: center; justify-content: center; background: #f0f0f0; }
-    #map { width: 800px; height: 500px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
-  </style>
 </head>
 <body>
+  <main class="app-shell">
+    <aside class="sidebar">
+      <section class="hero">
+        <span class="eyebrow">Dive Atlas</span>
+        <h1>Map, authenticate, and grow the site catalog.</h1>
+        <p>
+          TIDE runs on an in-memory dive-site database with authenticated writes.
+          Google sign-in unlocks create and update access, and every site keeps a clear author trail.
+        </p>
+        <div class="stats">
+          <div class="stat">
+            <span>Sites</span>
+            <strong id="siteCount">0</strong>
+          </div>
+          <div class="stat">
+            <span>Regions</span>
+            <strong id="regionCount">0</strong>
+          </div>
+          <div class="stat">
+            <span>Contributors</span>
+            <strong id="contributorCount">0</strong>
+          </div>
+        </div>
+      </section>
 
-  <div id="map"></div>
+      <div class="panel-stack">
+        <section class="card">
+          <h2>Authentication</h2>
+          <p>Database writes require a verified Firebase ID token. The backend records the contributor by email when present, otherwise by OAuth subject.</p>
+          <div class="auth-row">
+            <button id="signInButton" class="btn-primary" type="button">Sign in with Google</button>
+            <button id="signOutButton" class="btn-ghost" type="button" disabled>Sign out</button>
+          </div>
+          <div id="authStatus" class="auth-status">
+            <strong>Loading</strong>
+            <div class="helper">Checking Firebase configuration.</div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Dive Sites</h2>
+          <p>Select a site to focus the map and load it into the editor.</p>
+          <div id="siteList" class="site-list"></div>
+        </section>
+
+        <section class="card">
+          <h2 id="editorTitle">Add Dive Site</h2>
+          <p>Use the form to create a new site or update the selected one. Changes sync with the in-memory backend API immediately.</p>
+          <form id="siteForm">
+            <div class="field-grid">
+              <label>
+                Name
+                <input id="name" name="name" required />
+              </label>
+              <label>
+                Region
+                <input id="region" name="region" required />
+              </label>
+            </div>
+            <div class="field-grid">
+              <label>
+                Latitude
+                <input id="lat" name="lat" type="number" step="any" required />
+              </label>
+              <label>
+                Longitude
+                <input id="lng" name="lng" type="number" step="any" required />
+              </label>
+            </div>
+            <div class="field-grid">
+              <label>
+                Difficulty
+                <select id="difficulty" name="difficulty" required>
+                  <option>Open Water</option>
+                  <option>Advanced</option>
+                  <option>Rescue</option>
+                  <option>Technical</option>
+                </select>
+              </label>
+              <label>
+                Depth (ft)
+                <input id="depth_ft" name="depth_ft" type="number" min="0" required />
+              </label>
+            </div>
+            <div class="field-grid">
+              <label>
+                Visibility (ft)
+                <input id="visibility_ft" name="visibility_ft" type="number" min="0" required />
+              </label>
+              <label>
+                Mode
+                <select id="editorMode">
+                  <option value="create">Create new site</option>
+                  <option value="update">Update selected site</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              Notes
+              <textarea id="notes" name="notes" required></textarea>
+            </label>
+            <div class="actions">
+              <button id="submitButton" class="btn-primary" type="submit">Save site</button>
+              <button id="resetButton" class="btn-secondary" type="button">Reset form</button>
+            </div>
+            <div id="formStatus" class="status"></div>
+          </form>
+        </section>
+      </div>
+    </aside>
+
+    <section class="map-panel">
+      <div class="map-header">
+        <div class="map-banner">
+          <strong>Live site map</strong>
+          <div class="helper">Every marker comes from the backend API. Add or update a dive site and the map refreshes in place.</div>
+        </div>
+        <div class="map-focus">
+          <strong id="focusTitle">No site selected</strong>
+          <div id="focusMeta" class="helper">Select a marker or site card to inspect details.</div>
+        </div>
+      </div>
+      <div id="map"></div>
+    </section>
+  </main>
 
   <script>
-    const map = L.map('map', { worldCopyJump: false }).setView([25.0, -80.4], 10);
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
-      noWrap: true
-    }).addTo(map);
-
-    fetch('/api/surveys')
-      .then(res => res.json())
-      .then(surveys => {
-        surveys.forEach(s => {
-          L.marker([s.lat, s.lng])
-            .addTo(map)
-            .bindPopup(`
-              <b>${s.name}</b><br>
-              ${s.org}<br>
-              ${s.date}<br>
-              ${s.cert_required}<br>
-              ${s.divers_joined}/${s.capacity} divers
-            `);
-        });
-      });
+    window.TIDE_CONFIG = {{ {"firebase": firebase_config}|tojson }};
   </script>
-
+  <script type="module" src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
