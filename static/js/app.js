@@ -1,7 +1,12 @@
-const map = L.map("map", { zoomControl: false }).setView([24.9, -80.8], 9);
+const map = L.map("map", { 
+  zoomControl: false,
+  worldCopyJump: false
+}).setView([24.9, -80.8], 9);
+
 L.control.zoom({ position: "bottomright" }).addTo(map);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: "&copy; OpenStreetMap contributors",
+  noWrap: true
 }).addTo(map);
 
 const state = {
