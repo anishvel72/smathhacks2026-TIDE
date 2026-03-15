@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>TIDE</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { height: 100vh; display: flex; align-items: center; justify-content: center; background: #f0f0f0; }
+    #map { width: 800px; height: 500px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+  </style>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <script>
+    const map = L.map('map', { worldCopyJump: false }).setView([25.0, -80.4], 10);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors',
+      noWrap: true
+    }).addTo(map);
+
+    fetch('/api/surveys')
+      .then(res => res.json())
+      .then(surveys => {
+        surveys.forEach(s => {
+          L.marker([s.lat, s.lng])
+            .addTo(map)
+            .bindPopup(`
+              <b>${s.name}</b><br>
+              ${s.org}<br>
+              ${s.date}<br>
+              ${s.cert_required}<br>
+              ${s.divers_joined}/${s.capacity} divers
+            `);
+        });
+      });
+  </script>
+
+</body>
+</html>
