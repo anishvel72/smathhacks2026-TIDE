@@ -18,7 +18,7 @@
         <span class="eyebrow">Dive Atlas</span>
         <h1>TIDE: Tracking and Intelligence for Diving Expeditions</h1>
         <p>
-          TIDE runs on an in-memory dive-site database with authenticated writes.
+          TIDE runs on a local SQLite dive-site database with authenticated writes.
           Google sign-in unlocks create and update access, and every site keeps a clear author trail.
         </p>
         <div class="stats">
@@ -67,7 +67,7 @@
 
         <section class="card">
           <h2 id="editorTitle">Add Dive Site</h2>
-          <p>Use the form to create a new site or update the selected one. Changes sync with the in-memory backend API immediately.</p>
+          <p>Use the form to create a new site or update the selected one. Changes sync with the SQLite-backed API immediately.</p>
           <form id="siteForm">
             <div class="field-grid">
               <label>
